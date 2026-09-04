@@ -1,0 +1,21 @@
+---
+# ecs-anywhere role — install ECS Anywhere agent + SSM agent + register VPS
+#
+# Required vars:
+#   ssm_activation_id       from TF output
+#   ssm_activation_code     from TF output
+#   ecs_cluster_name        e.g. p-hybrid-apis
+#   aws_region              us-east-1
+#
+# Steps (Fase 5):
+#   - Deregister previous container instance if present (idempotency on recreate)
+#   - Download ecs-anywhere-install-latest.sh from amazon-ecs-agent S3
+#   - bash ecs-anywhere-install.sh --cluster ... --activation-id ... --activation-code ...
+#   - Verify: aws ecs list-container-instances --cluster hybrid-apis
+#
+# Verify after run:
+#   aws ecs describe-container-instances --cluster $ECS_CLUSTER --container-instances <id>
+
+- name: Placeholder — implement in Fase 5
+  ansible.builtin.debug:
+    msg: "TODO Fase 5: ecs-anywhere-install.sh with cluster + activation"

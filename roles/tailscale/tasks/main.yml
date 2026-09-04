@@ -1,0 +1,76 @@
+---
+# tailscale role — install Tailscale + join tailnet + accept AWS VPC routes
+#
+# Required vars (via -e "@/tmp/tf-outputs.json" from hybrid-networking-terraform):
+#   tailscale_auth_key    Reusable + preauthorized key from Tailscale admin
+#
+# Verify after run:
+#   ssh openclaw "sudo tailscale status"
+#   ssh openclaw "ping -c 3 10.230.0.10"   # some AWS VPC private IP
+
+- name: Fail if tailscale_auth_key is not provided
+  ansible.builtin.fail:
+    msg: >-
+      Variable tailscale_auth_key is required.
+      Pass via: ansible-playbook ... -e "tailscale_auth_key=tskey-auth-XXX"
+      Or from Terraform: terraform -chdir=hybrid-networking-terraform/tailscale-gw output -json > /tmp/tf.json
+  when: tailscale_auth_key is not defined or tailscale_auth_key | length == 0
+
+- name: Check if Tailscale package repo is configured
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/tailscale.list
+  register: tailscale_repo
+
+- name: Add Tailscale package signing key
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.noarmor.gpg
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: '0644'
+  when: not tailscale_repo.stat.exists
+
+- name: Add Tailscale apt repository
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.tailscale-keyring.list
+    dest: /etc/apt/sources.list.d/tailscale.list
+    mode: '0644'
+  when: not tailscale_repo.stat.exists
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable + start tailscaled service
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Check current Tailscale login state
+  ansible.builtin.command: tailscale status --json
+  register: ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Bring Tailscale up (join tailnet with auth key + accept routes)
+  ansible.builtin.command: >-
+    tailscale up
+    --authkey={{ tailscale_auth_key }}
+    --accept-routes
+    --hostname={{ inventory_hostname }}
+  when: >-
+    ts_status.rc != 0 or
+    (ts_status.stdout | from_json).BackendState != 'Running' or
+    not (ts_status.stdout | from_json).Self.Online | default(false)
+  no_log: true   # avoid leaking auth key to logs
+
+- name: Verify Tailscale is up and has assigned IP
+  ansible.builtin.command: tailscale ip -4
+  register: ts_ip
+  changed_when: false
+
+- name: Report tailnet IP
+  ansible.builtin.debug:
+    msg: "VPS tailnet IP: {{ ts_ip.stdout }}"

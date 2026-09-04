@@ -1,0 +1,26 @@
+# Ansible
+*.retry
+*.pyc
+__pycache__/
+
+# Vault / secrets
+*vault*.yml
+.vault_pass
+group_vars/*/vault.yml
+
+# Local terraform outputs staging
+/tmp/tf-outputs.json
+
+# Credentials
+*.pem
+*.key
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+

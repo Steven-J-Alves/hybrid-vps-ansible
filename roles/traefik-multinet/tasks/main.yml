@@ -1,0 +1,35 @@
+---
+# traefik-multinet role — add Docker `bridge` network to Traefik's compose
+#
+# Target: /home/claw/companies/kriolu-kloud.cv/traefik/docker-compose.yml
+#
+# Change required (idempotent):
+#
+#   services:
+#     traefik:
+#       networks:
+#         - traefik-public     # already there
+#         - bridge             # ADD this
+#
+#   networks:
+#     traefik-public:
+#       external: true
+#     bridge:                  # ADD this
+#       external: true
+#       name: bridge
+#
+# Steps (Fase 5):
+#   - Backup docker-compose.yml → docker-compose.yml.bak.<timestamp>
+#   - Load YAML, check if `bridge` already in traefik.networks (idempotency)
+#   - If not: patch YAML in-place preserving formatting where possible
+#   - docker compose up -d traefik (recreate, keeps existing containers)
+#   - Verify: docker inspect traefik | jq '.[0].NetworkSettings.Networks | keys'
+#            → expect ["bridge", "traefik-public"]
+#
+# Verify after run:
+#   ssh openclaw "sudo docker network inspect bridge | jq '.[0].Containers[].Name'"
+#   → should include "traefik"
+
+- name: Placeholder — implement in Fase 5
+  ansible.builtin.debug:
+    msg: "TODO Fase 5: patch Traefik compose to add bridge network, docker compose up -d"
