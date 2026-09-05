@@ -1,21 +1,86 @@
 ---
-# ecs-anywhere role — install ECS Anywhere agent + SSM agent + register VPS
+# ecs-anywhere role — install ECS + SSM agents + register VPS in the cluster
 #
-# Required vars:
-#   ssm_activation_id       from TF output
-#   ssm_activation_code     from TF output
-#   ecs_cluster_name        e.g. p-hybrid-apis
-#   aws_region              us-east-1
+# Required vars (via -e "@/tmp/tf-outputs.json" or -e):
+#   activation_id       SSM Activation ID (from ecs-anywhere-activation TF output)
+#   activation_code     SSM Activation Code (secret)
+#   ecs_cluster_name    e.g. p-hybrid-apis
+#   aws_region          us-east-1
 #
-# Steps (Fase 5):
-#   - Deregister previous container instance if present (idempotency on recreate)
-#   - Download ecs-anywhere-install-latest.sh from amazon-ecs-agent S3
-#   - bash ecs-anywhere-install.sh --cluster ... --activation-id ... --activation-code ...
-#   - Verify: aws ecs list-container-instances --cluster hybrid-apis
-#
-# Verify after run:
-#   aws ecs describe-container-instances --cluster $ECS_CLUSTER --container-instances <id>
+# Idempotency:
+#   - Installer script is downloaded fresh each run (small, fast, no state)
+#   - If the ECS agent is already registered in the target cluster, we skip the
+#     install (verify via /var/lib/ecs/data/agent.db presence + `docker ps ecs-agent`)
+#   - Re-registration requires deregistering first (documented in destroy playbook)
 
-- name: Placeholder — implement in Fase 5
+- name: Fail if required vars missing
+  ansible.builtin.fail:
+    msg: "Missing var: {{ item }}. Pass via -e or terraform output -json."
+  when: vars[item] is not defined or vars[item] | length == 0
+  loop:
+    - activation_id
+    - activation_code
+    - ecs_cluster_name
+    - aws_region
+
+- name: Check if ecs-agent container is already running
+  ansible.builtin.command: docker ps --filter name=ecs-agent --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+  register: ecs_agent_check
+  changed_when: false
+  failed_when: false
+
+- name: Skip install if agent already up
   ansible.builtin.debug:
-    msg: "TODO Fase 5: ecs-anywhere-install.sh with cluster + activation"
+    msg: "ECS agent already running as '{{ ecs_agent_check.stdout }}' — skipping install"
+  when: ecs_agent_check.stdout == "ecs-agent"
+
+- name: Install docker prerequisites (idempotent)
+  ansible.builtin.apt:
+    name:
+      - curl
+      - jq
+      - unzip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure /tmp exists (defensive)
+  ansible.builtin.file:
+    path: /tmp
+    state: directory
+    mode: '1777'
+
+- name: Download ECS Anywhere install script
+  ansible.builtin.get_url:
+    url: https://amazon-ecs-agent.s3.amazonaws.com/ecs-anywhere-install-latest.sh
+    dest: /tmp/ecs-anywhere-install.sh
+    mode: '0755'
+    force: true
+  when: ecs_agent_check.stdout != "ecs-agent"
+
+- name: Run ECS Anywhere installer (registers VPS into cluster)
+  ansible.builtin.command: >-
+    bash /tmp/ecs-anywhere-install.sh
+    --region {{ aws_region }}
+    --cluster {{ ecs_cluster_name }}
+    --activation-id {{ activation_id }}
+    --activation-code {{ activation_code }}
+  args:
+    creates: /var/lib/ecs/data/agent.db
+  no_log: true   # avoid leaking activation_code
+
+- name: Enable + start ecs service (systemd unit installed by the script)
+  ansible.builtin.systemd:
+    name: ecs
+    enabled: true
+    state: started
+
+- name: Confirm ecs-agent container is up
+  ansible.builtin.command: docker ps --filter name=ecs-agent --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+  register: ecs_agent_final
+  changed_when: false
+
+- name: Report registration
+  ansible.builtin.debug:
+    msg: "VPS registered as ECS Anywhere container instance in cluster '{{ ecs_cluster_name }}'. Verify: aws ecs list-container-instances --cluster {{ ecs_cluster_name }}"
+  when: ecs_agent_final.stdout == "ecs-agent"

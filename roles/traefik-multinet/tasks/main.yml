@@ -1,35 +1,54 @@
 ---
-# traefik-multinet role — add Docker `bridge` network to Traefik's compose
+# traefik-multinet role
 #
-# Target: /home/claw/companies/kriolu-kloud.cv/traefik/docker-compose.yml
+# Attaches the Docker default `bridge` network to the running Traefik container
+# so it can reach ECS Anywhere tasks (which are forced to `networkMode: bridge`).
 #
-# Change required (idempotent):
+# Uses `docker network connect` directly instead of editing docker-compose.yml
+# because Docker Compose adds a service-name alias on each network, and the
+# legacy default `bridge` refuses aliases ("network-scoped aliases are only
+# supported for user-defined networks"). Doing it via CLI bypasses the alias.
 #
-#   services:
-#     traefik:
-#       networks:
-#         - traefik-public     # already there
-#         - bridge             # ADD this
-#
-#   networks:
-#     traefik-public:
-#       external: true
-#     bridge:                  # ADD this
-#       external: true
-#       name: bridge
-#
-# Steps (Fase 5):
-#   - Backup docker-compose.yml → docker-compose.yml.bak.<timestamp>
-#   - Load YAML, check if `bridge` already in traefik.networks (idempotency)
-#   - If not: patch YAML in-place preserving formatting where possible
-#   - docker compose up -d traefik (recreate, keeps existing containers)
-#   - Verify: docker inspect traefik | jq '.[0].NetworkSettings.Networks | keys'
-#            → expect ["bridge", "traefik-public"]
-#
-# Verify after run:
-#   ssh openclaw "sudo docker network inspect bridge | jq '.[0].Containers[].Name'"
-#   → should include "traefik"
+# Trade-off: if Traefik is REMOVED and recreated (e.g. `docker compose down`),
+# the bridge attachment is lost. Restart alone (`docker restart traefik`) preserves it.
+# Re-run this role after any `docker compose down`.
 
-- name: Placeholder — implement in Fase 5
+- name: Set Traefik container name
+  ansible.builtin.set_fact:
+    traefik_container: traefik
+
+- name: Check current networks attached to Traefik
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker inspect {{ traefik_container }} --format='{{ "{{" }}range $net,$_ := .NetworkSettings.Networks{{ "}}" }}{{ "{{" }}$net{{ "}}" }} {{ "{{" }}end{{ "}}" }}'
+  args:
+    executable: /bin/bash
+  register: traefik_networks_current
+  changed_when: false
+
+- name: Check if `bridge` is already attached
+  ansible.builtin.set_fact:
+    bridge_already_attached: "{{ 'bridge' in traefik_networks_current.stdout.split() }}"
+
+- name: Report if already attached
   ansible.builtin.debug:
-    msg: "TODO Fase 5: patch Traefik compose to add bridge network, docker compose up -d"
+    msg: "Traefik already attached to default bridge (idempotent — nothing to do)"
+  when: bridge_already_attached
+
+- name: Attach default bridge network to Traefik
+  ansible.builtin.command: docker network connect bridge {{ traefik_container }}
+  when: not bridge_already_attached
+  register: bridge_connect
+
+- name: Confirm Traefik networks after change
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker inspect {{ traefik_container }} --format='{{ "{{" }}range $net,$_ := .NetworkSettings.Networks{{ "}}" }}{{ "{{" }}$net{{ "}}" }} {{ "{{" }}end{{ "}}" }}'
+  args:
+    executable: /bin/bash
+  register: traefik_networks_final
+  changed_when: false
+
+- name: Report final networks
+  ansible.builtin.debug:
+    msg: "Traefik is on networks: {{ traefik_networks_final.stdout | trim }}"
