@@ -1,0 +1,136 @@
+# hybrid-vps-ansible · CI/CD
+#
+# 3 roles: tailscale + ecs-anywhere + traefik-multinet.
+# Each pipeline step consumes outputs from hybrid-networking-terraform/eca:apply
+# (SSM activation_id/code + cluster_name + region) via cross-project artifact.
+#
+# Required CI variables (Settings → CI/CD, protected+masked where sensitive):
+#   TAILSCALE_AUTH_KEY   (sensitive; passed to Ansible as tailscale_auth_key)
+#   GITLAB_API_TOKEN     (read_api scope; used to pull artifact from ecs-anywhere-activation
+#                        project — group-level PAT works)
+#   ANSIBLE_SSH_KEY      (Base64-encoded ~/.ssh/claw_vps private key, or file variable)
+#   ANSIBLE_KNOWN_HOSTS  (optional; VPS host key entry)
+#
+# Runner tag: vps (has direct SSH to itself via 100.73.87.120 tailnet loopback)
+
+stages:
+  - lint
+  - dry-run
+  - apply
+  - destroy
+
+variables:
+  ANSIBLE_IMAGE: "willhallonline/ansible:2.16-alpine-3.19"
+  # Cross-project artifact source (adjust project path + branch as needed)
+  UPSTREAM_TF_PROJECT: "kriolu-kloud/devops/networking/hybrid-architecture/hybrid-networking-terraform"
+  UPSTREAM_TF_JOB: "eca:apply"
+
+# ─── Shared base ──────────────────────────────────────────────────────────────
+.ansible_base:
+  image:
+    name: $ANSIBLE_IMAGE
+    entrypoint: [""]
+  tags: [vps]
+  before_script:
+    # SSH key setup — needed for Ansible to reach VPS via tailnet SSH
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - if [ -n "$ANSIBLE_SSH_KEY" ]; then echo "$ANSIBLE_SSH_KEY" | base64 -d > ~/.ssh/claw_vps && chmod 600 ~/.ssh/claw_vps; fi
+    - if [ -n "$ANSIBLE_KNOWN_HOSTS" ]; then echo "$ANSIBLE_KNOWN_HOSTS" > ~/.ssh/known_hosts; else export ANSIBLE_HOST_KEY_CHECKING=False; fi
+    - export ANSIBLE_HOST_KEY_CHECKING=${ANSIBLE_HOST_KEY_CHECKING:-False}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# lint / syntax
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ansible:syntax-check:
+  extends: .ansible_base
+  stage: lint
+  script:
+    - ansible-playbook -i inventory playbook.yaml --syntax-check
+    - ansible-playbook -i inventory destroy.yaml --syntax-check
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+ansible:lint:
+  stage: lint
+  image: quay.io/ansible/creator-ee:latest
+  tags: [vps]
+  script:
+    - ansible-lint playbook.yaml destroy.yaml roles/ || true   # non-blocking initial
+  allow_failure: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# dry-run — check mode against VPS (real host but --check flag)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ansible:dry-run:
+  extends: .ansible_base
+  stage: dry-run
+  script:
+    - test -n "$TAILSCALE_AUTH_KEY" || (echo "TAILSCALE_AUTH_KEY not set" && exit 1)
+    - ansible-playbook -i inventory playbook.yaml
+        --check
+        -e "tailscale_auth_key=$TAILSCALE_AUTH_KEY"
+        -e "activation_id=dry-run-placeholder"
+        -e "activation_code=dry-run-placeholder"
+        -e "ecs_cluster_name=p-hybrid-apis"
+        -e "aws_region=us-east-1"
+  allow_failure: true   # dry-run against real host may fail on gather-facts-only tasks
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  needs: [ ansible:syntax-check ]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# apply — consume TF outputs, run playbook
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ansible:apply:
+  extends: .ansible_base
+  stage: apply
+  environment:
+    name: hybrid-prod
+    action: start
+  # Pull artifact from the ecs-anywhere-activation apply job
+  needs:
+    - project: $UPSTREAM_TF_PROJECT
+      job: $UPSTREAM_TF_JOB
+      ref: main
+      artifacts: true
+  script:
+    - test -f tf-outputs.json || (echo "tf-outputs.json artifact missing" && exit 1)
+    # Flatten TF outputs into extra vars JSON
+    - |
+      python3 -c "
+      import json
+      d = json.load(open('tf-outputs.json'))
+      flat = {k: v['value'] for k, v in d.items()}
+      flat['tailscale_auth_key'] = '$TAILSCALE_AUTH_KEY'
+      json.dump(flat, open('extra-vars.json', 'w'), indent=2)
+      print('extra vars keys:', list(flat.keys()))
+      "
+    - ansible-playbook -i inventory playbook.yaml -e '@extra-vars.json'
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# destroy — reverse order teardown of VPS-side config
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ansible:destroy:
+  extends: .ansible_base
+  stage: destroy
+  environment:
+    name: hybrid-prod
+    action: stop
+  script:
+    - ansible-playbook -i inventory destroy.yaml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
