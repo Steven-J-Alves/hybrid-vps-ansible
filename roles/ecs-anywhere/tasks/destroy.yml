@@ -1,0 +1,57 @@
+---
+# ecs-anywhere destroy — stop ECS + SSM agents, uninstall, wipe state.
+#
+# Note: the container instance should be deregistered from the cluster
+# BEFORE running this (via `aws ecs deregister-container-instance --force`
+# from a host with AWS creds). Otherwise the cluster keeps a stale record
+# until the cluster itself is destroyed.
+
+- name: Stop + disable ecs systemd unit (if exists)
+  ansible.builtin.systemd:
+    name: ecs
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Stop + disable amazon-ssm-agent (if exists)
+  ansible.builtin.systemd:
+    name: amazon-ssm-agent
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Force-remove ecs-agent container (if still around)
+  ansible.builtin.command: docker rm -f ecs-agent
+  failed_when: false
+  changed_when: false
+
+- name: Uninstall amazon-ecs-init (Debian)
+  ansible.builtin.apt:
+    name: amazon-ecs-init
+    state: absent
+    purge: true
+  failed_when: false
+
+- name: Uninstall amazon-ssm-agent (Debian)
+  ansible.builtin.apt:
+    name: amazon-ssm-agent
+    state: absent
+    purge: true
+  failed_when: false
+
+- name: Remove ECS state directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /var/lib/ecs
+    - /etc/ecs
+    - /var/log/ecs
+    - /var/lib/amazon
+    - /etc/amazon
+    - /tmp/ecs-anywhere-install.sh
+
+- name: Remove SSM registration marker
+  ansible.builtin.file:
+    path: /var/lib/amazon/ssm/registration
+    state: absent

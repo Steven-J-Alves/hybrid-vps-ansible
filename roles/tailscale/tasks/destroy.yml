@@ -1,0 +1,30 @@
+---
+# tailscale destroy — revert ONLY what hybrid added: --accept-routes.
+#
+# CRITICAL: do NOT `tailscale down` or `logout` — the VPS uses Tailscale for
+# SSH admin (ssh openclaw alias points at 100.73.87.120). Losing tailnet
+# membership locks us out.
+#
+# Hybrid setup only enabled route acceptance (so VPS could reach 10.230.x.x
+# in the AWS VPC). Undo = disable accept-routes. Tailscale keeps running.
+#
+# Full purge is intentionally NOT provided — Tailscale on VPS pre-dates
+# hybrid and serves other purposes.
+
+- name: Disable accept-routes (stops consuming AWS subnet router advertisements)
+  ansible.builtin.command: tailscale set --accept-routes=false
+  changed_when: true
+  failed_when: false
+
+- name: Confirm accept-routes state
+  ansible.builtin.shell: |
+    set -o pipefail
+    tailscale debug prefs 2>/dev/null | grep -E 'RouteAll' || echo "state check unavailable"
+  args:
+    executable: /bin/bash
+  register: prefs_state
+  changed_when: false
+
+- name: Report
+  ansible.builtin.debug:
+    msg: "Tailscale route acceptance: {{ prefs_state.stdout | trim }}. VPS remains on tailnet as 100.73.87.120."

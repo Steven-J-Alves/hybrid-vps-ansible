@@ -1,0 +1,38 @@
+---
+# traefik-multinet destroy — disconnect Traefik from default bridge network.
+# Idempotent: skips if not attached. Doesn't touch other networks.
+
+- name: Check current networks
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker inspect traefik --format='{{ "{{" }}range $net,$_ := .NetworkSettings.Networks{{ "}}" }}{{ "{{" }}$net{{ "}}" }} {{ "{{" }}end{{ "}}" }}' || true
+  args:
+    executable: /bin/bash
+  register: nets
+  changed_when: false
+
+- name: Skip if bridge not attached
+  ansible.builtin.debug:
+    msg: "Traefik already NOT on bridge — nothing to do"
+  when: "'bridge' not in nets.stdout.split()"
+
+- name: Disconnect bridge from Traefik
+  ansible.builtin.command: docker network disconnect bridge traefik
+  when: "'bridge' in nets.stdout.split()"
+  register: disc
+  failed_when:
+    - disc.rc != 0
+    - "'is not connected' not in (disc.stderr | default(''))"
+
+- name: Verify
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker inspect traefik --format='{{ "{{" }}range $net,$_ := .NetworkSettings.Networks{{ "}}" }}{{ "{{" }}$net{{ "}}" }} {{ "{{" }}end{{ "}}" }}' || echo ""
+  args:
+    executable: /bin/bash
+  register: nets_after
+  changed_when: false
+
+- name: Report
+  ansible.builtin.debug:
+    msg: "Traefik now on: {{ nets_after.stdout | trim }}"

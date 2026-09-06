@@ -1,0 +1,34 @@
+---
+# Reverse of playbook.yaml — undoes what hybrid setup did on the VPS.
+#
+# CRITICAL: preserves Tailscale connectivity (VPS SSH uses tailnet IP).
+# Only disables accept-routes; does NOT logout or purge.
+#
+# Order (reverse of setup):
+#   1. traefik-multinet — disconnect Traefik from Docker default bridge
+#   2. ecs-anywhere     — stop + uninstall agent + wipe /var/lib/ecs
+#   3. tailscale        — disable --accept-routes
+#
+# Usage:
+#   ansible-playbook -i inventory destroy.yaml
+#
+# Optional: -e tailscale_purge=true (removes Tailscale package too — will
+# lock you out via ssh openclaw alias!)
+
+- name: Destroy hybrid VPS-side configuration
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: 1) Disconnect Traefik from bridge network
+      ansible.builtin.import_tasks: roles/traefik-multinet/tasks/destroy.yml
+      tags: [destroy, traefik]
+
+    - name: 2) Stop + uninstall ECS Anywhere agent
+      ansible.builtin.import_tasks: roles/ecs-anywhere/tasks/destroy.yml
+      tags: [destroy, ecs-anywhere]
+
+    - name: 3) Disable Tailscale route acceptance
+      ansible.builtin.import_tasks: roles/tailscale/tasks/destroy.yml
+      tags: [destroy, tailscale]
