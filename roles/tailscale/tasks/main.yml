@@ -73,6 +73,13 @@
   changed_when: ts_backend_state != 'Running'
   no_log: true   # avoid leaking auth key to logs
 
+- name: Ensure accept-routes is enabled (idempotent — safe on re-runs)
+  ansible.builtin.command: tailscale set --accept-routes
+  changed_when: false
+  # 'tailscale up --accept-routes' only fires when we first join. If routes
+  # get toggled off later (manual admin change, or peer re-registration),
+  # this brings them back on without disturbing anything else.
+
 - name: Verify Tailscale is up and has assigned IP
   ansible.builtin.command: tailscale ip -4
   register: ts_ip
