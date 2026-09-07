@@ -1,0 +1,33 @@
+---
+# traefik-ping role
+#
+# Enables Traefik's built-in /ping endpoint on the existing `web` entrypoint
+# (port 80). Used by the AWS ALB TG-vps health check so it can verify Traefik
+# itself is alive on a plain GET /ping (no Host header — ALB TGs cannot send
+# custom headers).
+#
+# The public ALB weight-forwards X% of front traffic to the VPS via Tailscale;
+# TG-vps health then reflects Traefik liveness. When Traefik is down the
+# target is marked unhealthy and the ALB drains traffic — no more 504s.
+
+- name: Ensure ping block is present in Traefik config
+  ansible.builtin.blockinfile:
+    path: /home/claw/companies/kriolu-kloud.cv/traefik/traefik.yml
+    marker: "# {mark} ANSIBLE MANAGED: traefik-ping"
+    block: |
+      ping:
+        entryPoint: web
+  register: traefik_cfg
+
+- name: Restart Traefik if config changed
+  ansible.builtin.command: docker restart traefik
+  when: traefik_cfg.changed
+
+- name: Wait for Traefik /ping to return 200
+  ansible.builtin.uri:
+    url: http://localhost/ping
+    status_code: 200
+  register: ping_check
+  retries: 10
+  delay: 3
+  until: ping_check.status == 200

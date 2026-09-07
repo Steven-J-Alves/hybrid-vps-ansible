@@ -32,3 +32,6 @@
 
     - role: traefik-multinet
       tags: [traefik, docker]
+
+    - role: traefik-ping
+      tags: [traefik, ping]
