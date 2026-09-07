@@ -26,13 +26,12 @@ variables:
   UPSTREAM_TF_JOB: "eca:apply"
 
 # ─── Shared base ──────────────────────────────────────────────────────────────
+# Runner is shell executor on the VPS (tag `vps`). Ansible + docker already
+# installed on host, so no `image:` needed. Managing SSH via mounted key from
+# gitlab-runner's ~/.ssh (which has the claw_vps private key pre-provisioned).
 .ansible_base:
-  image:
-    name: $ANSIBLE_IMAGE
-    entrypoint: [""]
   tags: [vps]
   before_script:
-    # SSH key setup — needed for Ansible to reach VPS via tailnet SSH
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - if [ -n "$ANSIBLE_SSH_KEY" ]; then echo "$ANSIBLE_SSH_KEY" | base64 -d > ~/.ssh/claw_vps && chmod 600 ~/.ssh/claw_vps; fi
     - if [ -n "$ANSIBLE_KNOWN_HOSTS" ]; then echo "$ANSIBLE_KNOWN_HOSTS" > ~/.ssh/known_hosts; else export ANSIBLE_HOST_KEY_CHECKING=False; fi
@@ -54,10 +53,10 @@ ansible:syntax-check:
 
 ansible:lint:
   stage: lint
-  image: quay.io/ansible/creator-ee:latest
   tags: [vps]
   script:
-    - ansible-lint playbook.yaml destroy.yaml roles/ || true   # non-blocking initial
+    - which ansible-lint >/dev/null 2>&1 || (echo "ansible-lint not installed on runner, skipping"; exit 0)
+    - ansible-lint playbook.yaml destroy.yaml roles/ || true
   allow_failure: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -96,33 +95,33 @@ ansible:apply:
     action: start
   # Cross-project needs is EE-only. Pull TF outputs via GitLab API using
   # GITLAB_API_TOKEN (protected+masked, read_api scope on the TF project).
+  # Runner is shell executor on VPS: curl + python3 + ansible already installed.
   script:
-    - apk add --no-cache curl python3 py3-pip >/dev/null || true
     - |
+      set -e
       UPSTREAM="kriolu-kloud%2Fdevops%2Fnetworking%2Fhybrid-architecture%2Fhybrid-networking-terraform"
       JOB_ID=$(curl -sk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
-        "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs?scope[]=success" \
-        | python3 -c "
-      import json,sys
-      jobs=json.load(sys.stdin)
-      for j in jobs:
-          if j['name']=='eca:apply' and j.get('ref')=='main':
-              print(j['id']); break")
+        "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs?scope[]=success&per_page=50" \
+        | python3 -c 'import json,sys
+data=json.load(sys.stdin)
+if not isinstance(data, list):
+    print("API returned non-list:", data, file=sys.stderr); sys.exit(2)
+for j in data:
+    if j.get("name")=="eca:apply" and j.get("ref")=="main":
+        print(j["id"]); break')
       test -n "$JOB_ID" || (echo "no successful eca:apply job on main"; exit 1)
       echo "pulling artifact from job $JOB_ID"
-      curl -sk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
+      curl -sfk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
         "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs/$JOB_ID/artifacts/tf-outputs.json" \
         -o tf-outputs.json
       test -s tf-outputs.json || (echo "artifact fetch failed"; exit 1)
     - |
-      python3 -c "
-      import json
-      d = json.load(open('tf-outputs.json'))
-      flat = {k: v['value'] for k, v in d.items()}
-      flat['tailscale_auth_key'] = '$TAILSCALE_AUTH_KEY'
-      json.dump(flat, open('extra-vars.json', 'w'), indent=2)
-      print('extra vars keys:', list(flat.keys()))
-      "
+      python3 -c 'import json,os
+d=json.load(open("tf-outputs.json"))
+flat={k: v["value"] for k,v in d.items()}
+flat["tailscale_auth_key"]=os.environ["TAILSCALE_AUTH_KEY"]
+json.dump(flat, open("extra-vars.json","w"), indent=2)
+print("extra vars keys:", list(flat.keys()))'
     - ansible-playbook -i inventory playbook.yaml -e '@extra-vars.json'
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
