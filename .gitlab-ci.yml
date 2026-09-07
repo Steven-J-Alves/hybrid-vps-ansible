@@ -110,6 +110,7 @@ ansible:apply:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ansible:destroy:
+  needs: []
   extends: .ansible_base
   stage: destroy
   environment:
