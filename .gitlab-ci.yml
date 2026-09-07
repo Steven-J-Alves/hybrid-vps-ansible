@@ -95,9 +95,10 @@ ansible:apply:
     name: hybrid-prod
     action: start
   # Pull artifact from the ecs-anywhere-activation apply job
+  # GitLab CE 19 requires literal path here — no variables allowed.
   needs:
-    - project: $UPSTREAM_TF_PROJECT
-      job: $UPSTREAM_TF_JOB
+    - project: kriolu-kloud/devops/networking/hybrid-architecture/hybrid-networking-terraform
+      job: eca:apply
       ref: main
       artifacts: true
   script:
