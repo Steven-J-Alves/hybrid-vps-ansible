@@ -49,10 +49,19 @@
     state: started
 
 - name: Check current Tailscale login state
-  ansible.builtin.command: tailscale status --json
+  ansible.builtin.command: tailscale status --json --peers=false
   register: ts_status
   changed_when: false
   failed_when: false
+  check_mode: false   # always run — command is read-only
+
+- name: Parse Tailscale backend state (safe when stdout is empty)
+  ansible.builtin.set_fact:
+    ts_backend_state: "{{ (ts_status.stdout | from_json).BackendState | default('NoState') if ts_status.stdout else 'NoState' }}"
+
+- name: Report Tailscale current state
+  ansible.builtin.debug:
+    msg: "Tailscale BackendState={{ ts_backend_state }} (rc={{ ts_status.rc }})"
 
 - name: Bring Tailscale up (join tailnet with auth key + accept routes)
   ansible.builtin.command: >-
@@ -60,10 +69,8 @@
     --authkey={{ tailscale_auth_key }}
     --accept-routes
     --hostname={{ inventory_hostname }}
-  when: >-
-    ts_status.rc != 0 or
-    (ts_status.stdout | from_json).BackendState != 'Running' or
-    not (ts_status.stdout | from_json).Self.Online | default(false)
+  when: ts_backend_state != 'Running'
+  changed_when: ts_backend_state != 'Running'
   no_log: true   # avoid leaking auth key to logs
 
 - name: Verify Tailscale is up and has assigned IP
