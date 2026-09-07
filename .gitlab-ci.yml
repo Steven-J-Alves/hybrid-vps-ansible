@@ -97,31 +97,8 @@ ansible:apply:
   # GITLAB_API_TOKEN (protected+masked, read_api scope on the TF project).
   # Runner is shell executor on VPS: curl + python3 + ansible already installed.
   script:
-    - |
-      set -e
-      UPSTREAM="kriolu-kloud%2Fdevops%2Fnetworking%2Fhybrid-architecture%2Fhybrid-networking-terraform"
-      JOB_ID=$(curl -sk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
-        "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs?scope[]=success&per_page=50" \
-        | python3 -c 'import json,sys
-data=json.load(sys.stdin)
-if not isinstance(data, list):
-    print("API returned non-list:", data, file=sys.stderr); sys.exit(2)
-for j in data:
-    if j.get("name")=="eca:apply" and j.get("ref")=="main":
-        print(j["id"]); break')
-      test -n "$JOB_ID" || (echo "no successful eca:apply job on main"; exit 1)
-      echo "pulling artifact from job $JOB_ID"
-      curl -sfk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
-        "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs/$JOB_ID/artifacts/tf-outputs.json" \
-        -o tf-outputs.json
-      test -s tf-outputs.json || (echo "artifact fetch failed"; exit 1)
-    - |
-      python3 -c 'import json,os
-d=json.load(open("tf-outputs.json"))
-flat={k: v["value"] for k,v in d.items()}
-flat["tailscale_auth_key"]=os.environ["TAILSCALE_AUTH_KEY"]
-json.dump(flat, open("extra-vars.json","w"), indent=2)
-print("extra vars keys:", list(flat.keys()))'
+    - python3 scripts/pull_tf_outputs.py
+    - python3 scripts/build_extra_vars.py
     - ansible-playbook -i inventory playbook.yaml -e '@extra-vars.json'
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
