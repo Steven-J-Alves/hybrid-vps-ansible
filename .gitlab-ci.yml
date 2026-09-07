@@ -94,16 +94,26 @@ ansible:apply:
   environment:
     name: hybrid-prod
     action: start
-  # Pull artifact from the ecs-anywhere-activation apply job
-  # GitLab CE 19 requires literal path here — no variables allowed.
-  needs:
-    - project: kriolu-kloud/devops/networking/hybrid-architecture/hybrid-networking-terraform
-      job: eca:apply
-      ref: main
-      artifacts: true
+  # Cross-project needs is EE-only. Pull TF outputs via GitLab API using
+  # GITLAB_API_TOKEN (protected+masked, read_api scope on the TF project).
   script:
-    - test -f tf-outputs.json || (echo "tf-outputs.json artifact missing" && exit 1)
-    # Flatten TF outputs into extra vars JSON
+    - apk add --no-cache curl python3 py3-pip >/dev/null || true
+    - |
+      UPSTREAM="kriolu-kloud%2Fdevops%2Fnetworking%2Fhybrid-architecture%2Fhybrid-networking-terraform"
+      JOB_ID=$(curl -sk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
+        "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs?scope[]=success" \
+        | python3 -c "
+      import json,sys
+      jobs=json.load(sys.stdin)
+      for j in jobs:
+          if j['name']=='eca:apply' and j.get('ref')=='main':
+              print(j['id']); break")
+      test -n "$JOB_ID" || (echo "no successful eca:apply job on main"; exit 1)
+      echo "pulling artifact from job $JOB_ID"
+      curl -sk --header "PRIVATE-TOKEN: $GITLAB_API_TOKEN" \
+        "https://gitlab.kriolu-kloud.cv/api/v4/projects/$UPSTREAM/jobs/$JOB_ID/artifacts/tf-outputs.json" \
+        -o tf-outputs.json
+      test -s tf-outputs.json || (echo "artifact fetch failed"; exit 1)
     - |
       python3 -c "
       import json
