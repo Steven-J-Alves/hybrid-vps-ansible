@@ -1,0 +1,150 @@
+<mxfile host="app.diagrams.net" agent="drawio-generate" version="24.0.0">
+  <diagram id="ansible-flow" name="hybrid-vps-ansible flow">
+    <mxGraphModel dx="1800" dy="1300" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="hybrid-vps-ansible — CI-driven VPS host configuration" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#2e7d32;" vertex="1" parent="1">
+          <mxGeometry x="400" y="16" width="1100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="4 roles applied in order — tailscale → ecs-anywhere → traefik-multinet → traefik-ping — orchestrated by GitLab CI" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=12;fontColor=#666;" vertex="1" parent="1">
+          <mxGeometry x="400" y="46" width="1100" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- CI SIDE (left) -->
+        <mxCell id="ci-box" value="GitLab CI · gitlab.kriolu-kloud.cv &#xa;runner tag: vps (shell executor)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="620" height="820" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stages" value="Pipeline stages" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontStyle=1;fontColor=#9673a6;spacingLeft=8;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="40" width="580" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stage-lint" value="1 · lint&#xa;• ansible-playbook --syntax-check&#xa;• ansible-lint (via pipx, non-blocking if absent)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;spacingLeft=8;align=left;verticalAlign=top;spacingTop=6;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="70" width="580" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stage-dryrun" value="2 · dry-run&#xa;• ansible-playbook --check&#xa;• Runs against real host with --check (idempotence sanity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;spacingLeft=8;align=left;verticalAlign=top;spacingTop=6;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="150" width="580" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stage-apply" value="3 · apply  (manual)&#xa;• python3 scripts/pull_tf_outputs.py       → fetches tf-outputs.json from eca:apply job (GitLab API)&#xa;• python3 scripts/build_extra_vars.py     → flattens outputs + adds TAILSCALE_AUTH_KEY&#xa;• ansible-playbook -i inventory playbook.yaml -e '@extra-vars.json'" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=10;spacingLeft=8;align=left;verticalAlign=top;spacingTop=6;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="230" width="580" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stage-destroy" value="4 · destroy  (manual, needs: [])&#xa;• ansible-playbook -i inventory destroy.yaml&#xa;• Reverses each role, deregisters VPS from ECS cluster" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBE9E7;strokeColor=#E64A19;fontSize=10;spacingLeft=8;align=left;verticalAlign=top;spacingTop=6;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="340" width="580" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ci-vars" value="Required CI variables (protected + masked)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontStyle=1;fontColor=#9673a6;spacingLeft=8;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="430" width="580" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="var-list" value="ANSIBLE_SSH_KEY      base64-encoded ~/.ssh/claw_vps (used to SSH into 100.73.87.120:52222 as claw)&#xa;TAILSCALE_AUTH_KEY   reusable + preauthorized-routes flag&#xa;GITLAB_API_TOKEN     read_api PAT — pulls tf-outputs.json from hybrid-networking-terraform&#xa;ANSIBLE_KNOWN_HOSTS  optional; else ANSIBLE_HOST_KEY_CHECKING=False" style="text;html=1;strokeColor=#9673a6;fillColor=#ffffff;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontFamily=Courier New;spacingLeft=8;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="460" width="580" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="upstream-note" value="Cross-project artifact (why python scripts, not `needs: project:`)&#xa;GitLab CE 19 blocks needs:project — so we curl the API from job scope." style="text;html=1;strokeColor=#e65100;fillColor=#fff3e0;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontStyle=2;spacingLeft=8;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="580" width="580" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="local-run" value="Local run (rare — CI preferred)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontStyle=1;fontColor=#9673a6;spacingLeft=8;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="650" width="580" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="local-cmd" value="ansible-playbook -i inventory playbook.yaml &#xa;  -e &quot;tailscale_auth_key=tskey-...&quot;&#xa;  -e &quot;activation_id=... activation_code=...&quot;&#xa;  -e &quot;ecs_cluster_name=p-hybrid-apis aws_region=us-east-1&quot;&#xa;# Single role:  --tags ping" style="text;html=1;strokeColor=#9673a6;fillColor=#ffffff;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontFamily=Courier New;spacingLeft=8;" vertex="1" parent="ci-box">
+          <mxGeometry x="20" y="680" width="580" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- VPS SIDE (right) -->
+        <mxCell id="vps-box" value="Contabo VPS · 161.97.83.115 · Debian · Docker Engine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="720" y="90" width="1160" height="1170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="vps-target" value="inventory host: openclaw  (SSH claw@100.73.87.120:52222)" style="text;html=1;strokeColor=#9673a6;fillColor=#e1d5e7;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=10;fontFamily=Courier New;" vertex="1" parent="vps-box">
+          <mxGeometry x="20" y="40" width="1120" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- Role 1: tailscale -->
+        <mxCell id="role1" value="Role 1 · tailscale" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F4EBFF;strokeColor=#8C4FFF;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="vps-box">
+          <mxGeometry x="20" y="80" width="1120" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role1-tasks" value="1. Check + add Tailscale apt repo (idempotent via stat)&#xa;2. Install `tailscale` (apt)&#xa;3. Enable + start `tailscaled` (systemd)&#xa;4. Read state via `tailscale status --json --peers=false` (check_mode: false)&#xa;5. Parse BackendState (safe fallback if stdout empty)&#xa;6. `tailscale up --authkey=$KEY --accept-routes --hostname=openclaw`   only when BackendState != Running&#xa;7. `tailscale set --accept-routes` — idempotent guard (persists across re-runs)&#xa;8. Verify + report tailnet IP" style="text;html=1;strokeColor=#8C4FFF;fillColor=#ffffff;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=10;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="role1">
+          <mxGeometry x="20" y="40" width="1080" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role1-result" value="Result: VPS joins tailnet as 100.73.87.120, accepts route 10.230.0.0/16 advertised by tsgw EC2. Ping AWS-side private IPs works." style="text;html=1;strokeColor=none;fillColor=#F4EBFF;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontStyle=2;spacingLeft=8;fontColor=#8C4FFF;" vertex="1" parent="role1">
+          <mxGeometry x="20" y="180" width="1080" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Role 2: ecs-anywhere -->
+        <mxCell id="role2" value="Role 2 · ecs-anywhere" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#ED7100;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="vps-box">
+          <mxGeometry x="20" y="315" width="1120" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role2-tasks" value="1. Fetch ECS Anywhere install script (curl `ecs-anywhere-install.sh`)&#xa;2. Run:  bash ecs-anywhere-install.sh --cluster $ECS_CLUSTER --activation-id $ID --activation-code $CODE --region us-east-1&#xa;3. Systemd unit `ecs.service` installed and started&#xa;4. Verify VPS shows up in `aws ecs list-container-instances --cluster p-hybrid-apis`&#xa;5. ECS agent runs Docker daemon socket — ready to pull tasks from AWS-managed task definitions" style="text;html=1;strokeColor=#ED7100;fillColor=#ffffff;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=10;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="role2">
+          <mxGeometry x="20" y="40" width="1080" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role2-inputs" value="Inputs (from `hybrid-networking-terraform/eca:apply` outputs, fetched via GitLab API in apply stage):&#xa;activation_id · activation_code · ecs_cluster_name · aws_region" style="text;html=1;strokeColor=none;fillColor=#FFF3E0;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontStyle=2;spacingLeft=8;fontColor=#ED7100;" vertex="1" parent="role2">
+          <mxGeometry x="20" y="160" width="1080" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Role 3: traefik-multinet -->
+        <mxCell id="role3" value="Role 3 · traefik-multinet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F2F8;strokeColor=#147EBA;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="vps-box">
+          <mxGeometry x="20" y="550" width="1120" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role3-tasks" value="1. Inspect currently-attached networks on Traefik container (`docker inspect`)&#xa;2. If default `bridge` NOT attached, run: `docker network connect bridge traefik`&#xa;3. Confirm and report final network list&#xa;&#xa;Why CLI (not `docker-compose.yml`): Compose adds a network alias per service, and the legacy default `bridge` refuses aliases." style="text;html=1;strokeColor=#147EBA;fillColor=#ffffff;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=10;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="role3">
+          <mxGeometry x="20" y="40" width="1080" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role3-result" value="Result: Traefik discovers ECS Anywhere tasks (which run on Docker `bridge`) via docker.sock provider. Trade-off: if Traefik is `docker compose down`d, bridge attachment is lost — re-run this role." style="text;html=1;strokeColor=none;fillColor=#E6F2F8;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontStyle=2;spacingLeft=8;fontColor=#147EBA;" vertex="1" parent="role3">
+          <mxGeometry x="20" y="160" width="1080" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Role 4: traefik-ping -->
+        <mxCell id="role4" value="Role 4 · traefik-ping" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F6E8;strokeColor=#7AA116;fontSize=13;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="vps-box">
+          <mxGeometry x="20" y="765" width="1120" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role4-tasks" value="1. `blockinfile` on /home/claw/.../traefik/traefik.yml — inject `ping: entryPoint: web` (marker guarded, idempotent)&#xa;2. If changed → `docker restart traefik`&#xa;3. Wait for `http://localhost/ping` to return 200 (retry 10× × 3s)" style="text;html=1;strokeColor=#7AA116;fillColor=#ffffff;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=10;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="role4">
+          <mxGeometry x="20" y="40" width="1080" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="role4-result" value="Result: AWS ALB TG-vps health-check now has a real liveness endpoint (200 OK when Traefik is up). No Host header needed (ALB TGs can&apos;t send them). If Traefik dies, ALB drains traffic away from VPS TG." style="text;html=1;strokeColor=none;fillColor=#F2F6E8;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;fontStyle=2;spacingLeft=8;fontColor=#7AA116;" vertex="1" parent="role4">
+          <mxGeometry x="20" y="120" width="1080" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Bottom row: isolation + destroy -->
+        <mxCell id="isolation" value="Isolation — Ansible does NOT touch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f9a825;fontSize=11;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="vps-box">
+          <mxGeometry x="20" y="980" width="540" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="isolation-body" value="• Containers on `traefik-public` network (bussola.cv, kriolu-kloud.cv legacy, gitlab, mailcow, documind)&#xa;• Mailcow config at /opt/mailcow-dockerized/&#xa;• Docker daemon config /etc/docker/daemon.json&#xa;• Everything outside /home/claw/companies/kriolu-kloud.cv/traefik/ and the systemd ecs.service unit" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=10;spacingLeft=8;" vertex="1" parent="isolation">
+          <mxGeometry x="20" y="40" width="500" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="destroy-caveat" value="Destroy gap — known" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBE9E7;strokeColor=#E64A19;fontSize=11;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="vps-box">
+          <mxGeometry x="580" y="980" width="560" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="destroy-body" value="ECS Anywhere agent does NOT auto-clean containers when service is dropped.&#xa;Zombie containers on VPS cause Traefik `Router defined multiple times` errors.&#xa;&#xa;Manual cleanup after destroy:&#xa;ssh openclaw &quot;sudo docker ps --format &apos;{{.ID}} {{.Names}}&apos; | grep ecs-p-app | awk &apos;{print \$1}&apos; | xargs -r sudo docker rm -f&quot;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=9;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="destroy-caveat">
+          <mxGeometry x="20" y="40" width="520" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows CI → VPS -->
+        <mxCell id="edge-ssh" value="SSH :52222 as `claw`" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=2;fontSize=10;fontStyle=1;" edge="1" source="stage-apply" target="vps-target" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-destroy-ssh" value="destroy.yaml" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#E64A19;strokeWidth=2;fontSize=10;fontStyle=1;dashed=1;" edge="1" source="stage-destroy" target="vps-target" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
