@@ -1,5 +1,7 @@
 # hybrid-vps-ansible
 
+![Ansible flow](ansible-flow.png)
+
 Ansible playbook + roles that configure the **VPS side** of the hybrid architecture. Four roles applied in order:
 
 | # | Role | What it does |
